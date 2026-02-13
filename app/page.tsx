@@ -22,7 +22,7 @@ type ProposedBet = {
 type Exposures = {
   daily_staked: number;
   weekly_staked: number;          // ISO week Mon 00:00 local
-  same_group1_staked: number;     // group1 concentration (today’s ledger subset, v1)
+  same_group1_staked: number;     // group1 concentration
   same_group2_7d_staked: number;  // rolling 7d
   bets_today: number;
 };
@@ -255,7 +255,7 @@ export default function Page() {
   const [group1, setGroup1] = useState<string>("EVENT-1");
   const [group2, setGroup2] = useState<string>("TEAM-1");
 
-  // Behavior inputs (kept simple; can be expanded later)
+  // Behavior inputs (optional)
   const [stakeSpike, setStakeSpike] = useState(false);
   const [freqSpike, setFreqSpike] = useState(false);
   const [consOverrides, setConsOverrides] = useState(0);
@@ -272,6 +272,28 @@ export default function Page() {
   }, [rules]);
 
   const exposures = useMemo(() => computeExposures(ledger, group1, group2), [ledger, group1, group2]);
+
+  const caps = useMemo(() => {
+    const B = Number(bankroll) || 0;
+    return {
+      unit_cap: B * (rules.unit_pct / 100),
+      daily_cap: B * (rules.daily_pct / 100),
+      weekly_cap: B * (rules.weekly_pct / 100),
+      event_cap: B * (rules.group1_pct / 100),
+      team_cap: B * (rules.group2_pct / 100)
+    };
+  }, [bankroll, rules]);
+
+  const projected = useMemo(() => {
+    const S = Number(stake) || 0;
+    return {
+      daily: exposures.daily_staked + S,
+      weekly: exposures.weekly_staked + S,
+      event: exposures.same_group1_staked + S,
+      team7d: exposures.same_group2_7d_staked + S,
+      bets: exposures.bets_today + 1
+    };
+  }, [exposures, stake]);
 
   const decision = useMemo(() => {
     const bet: ProposedBet = {
@@ -420,7 +442,7 @@ export default function Page() {
           <h2 style={{ marginTop: 0, fontSize: 16 }}>Decision</h2>
 
           <div style={{ padding: 14, borderRadius: 12, border: "1px solid #eee", background: "#fafafa" }}>
-            <div style={{ fontSize: 28, fontWeight: 800 }}>{decision.verdict}</div>
+            <div style={{ fontSize: 28, fontWeight: 900 }}>{decision.verdict}</div>
 
             <div style={{ marginTop: 10 }}>
               <div style={{ fontSize: 12, color: "#555" }}>Reasons (ordered)</div>
@@ -434,17 +456,56 @@ export default function Page() {
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-              <Metric label="friction_required" value={String(decision.verdict !== "ALLOW")} />
-              <Metric label="cooldown_triggered" value={String(decision.verdict === "RED_ALERT")} />
+              <Metric label="friction_required" value={String(decision.friction_required)} />
+              <Metric label="cooldown_triggered" value={String(decision.cooldown_triggered)} />
             </div>
           </div>
 
-          <h3 style={{ marginTop: 18, fontSize: 14 }}>Current Exposures</h3>
+          <h3 style={{ marginTop: 18, fontSize: 14 }}>Framework Usage (visual)</h3>
+
+          <ProgressCard
+            title="Daily Exposure"
+            subtitle={`Cap: ${money(caps.daily_cap)} (${rules.daily_pct}%)`}
+            current={exposures.daily_staked}
+            projected={projected.daily}
+            cap={caps.daily_cap}
+          />
+          <ProgressCard
+            title="Weekly Exposure"
+            subtitle={`Cap: ${money(caps.weekly_cap)} (${rules.weekly_pct}%)`}
+            current={exposures.weekly_staked}
+            projected={projected.weekly}
+            cap={caps.weekly_cap}
+          />
+          <ProgressCard
+            title="Same Group1 Concentration"
+            subtitle={`Cap: ${money(caps.event_cap)} (${rules.group1_pct}%)`}
+            current={exposures.same_group1_staked}
+            projected={projected.event}
+            cap={caps.event_cap}
+          />
+          <ProgressCard
+            title="Same Group2 Concentration (rolling 7d)"
+            subtitle={`Cap: ${money(caps.team_cap)} (${rules.group2_pct}%)`}
+            current={exposures.same_group2_7d_staked}
+            projected={projected.team7d}
+            cap={caps.team_cap}
+          />
+          <ProgressCard
+            title="Action Frequency"
+            subtitle={`Cap: ${rules.freq_cap} / day`}
+            current={exposures.bets_today}
+            projected={projected.bets}
+            cap={rules.freq_cap}
+            isCount
+          />
+
+          <h3 style={{ marginTop: 18, fontSize: 14 }}>Current Exposures (numbers)</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <Metric label="daily_staked" value={exposures.daily_staked.toFixed(2)} />
-            <Metric label="weekly_staked (ISO week)" value={exposures.weekly_staked.toFixed(2)} />
-            <Metric label="same_group1_staked" value={exposures.same_group1_staked.toFixed(2)} />
-            <Metric label="same_group2_7d_staked" value={exposures.same_group2_7d_staked.toFixed(2)} />
+            <Metric label="daily_staked" value={money(exposures.daily_staked)} />
+            <Metric label="weekly_staked (ISO week)" value={money(exposures.weekly_staked)} />
+            <Metric label="same_group1_staked" value={money(exposures.same_group1_staked)} />
+            <Metric label="same_group2_7d_staked" value={money(exposures.same_group2_7d_staked)} />
             <Metric label="bets_today" value={String(exposures.bets_today)} />
             <Metric label="ledger_entries" value={String(ledger.length)} />
           </div>
@@ -458,6 +519,7 @@ export default function Page() {
   );
 }
 
+/** ---------- UI helpers ---------- */
 function RuleRow({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
     <label style={{ display: "block" }}>
@@ -476,7 +538,106 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ border: "1px solid #eee", borderRadius: 10, padding: 10 }}>
       <div style={{ fontSize: 12, color: "#555" }}>{label}</div>
-      <div style={{ fontWeight: 800 }}>{value}</div>
+      <div style={{ fontWeight: 900 }}>{value}</div>
     </div>
   );
+}
+
+function money(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(2);
+}
+
+function clamp01(x: number): number {
+  if (!Number.isFinite(x)) return 0;
+  if (x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
+}
+
+function ProgressCard({
+  title,
+  subtitle,
+  current,
+  projected,
+  cap,
+  isCount
+}: {
+  title: string;
+  subtitle: string;
+  current: number;
+  projected: number;
+  cap: number;
+  isCount?: boolean;
+}) {
+  const curPct = cap > 0 ? current / cap : 0;
+  const projPct = cap > 0 ? projected / cap : 0;
+
+  return (
+    <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12, marginTop: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <div style={{ fontWeight: 900 }}>{title}</div>
+          <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>{subtitle}</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 12, color: "#666" }}>Current → Projected</div>
+          <div style={{ fontWeight: 900 }}>
+            {isCount ? `${current} → ${projected}` : `${money(current)} → ${money(projected)}`}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>
+          {pctLabel(curPct)} current • {pctLabel(projPct)} projected
+        </div>
+
+        {/* Base bar */}
+        <div style={{ position: "relative", height: 12, borderRadius: 999, background: "#f0f0f0", overflow: "hidden" }}>
+          {/* Current fill */}
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: `${clamp01(curPct) * 100}%`,
+              background: "#999"
+            }}
+          />
+          {/* Projected overlay (darker) */}
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: `${clamp01(projPct) * 100}%`,
+              background: "#111",
+              opacity: 0.35
+            }}
+          />
+        </div>
+
+        {/* Cap marker line */}
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#777", marginTop: 6 }}>
+          <span>0%</span>
+          <span>100%</span>
+        </div>
+
+        {/* Over-cap note */}
+        {projPct > 1 && (
+          <div style={{ marginTop: 6, fontSize: 12, fontWeight: 800 }}>
+            Projected exceeds cap by {pctLabel(projPct - 1)}.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function pctLabel(x: number): string {
+  if (!Number.isFinite(x)) return "—";
+  return `${Math.round(x * 100)}%`;
 }
