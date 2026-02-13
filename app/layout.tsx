@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "RISK-REDUX v1",
+  title: "RISK-REDUX",
   description: "Deterministic capital governance engine (v1)"
 };
 
