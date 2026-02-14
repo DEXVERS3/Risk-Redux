@@ -1,3 +1,5 @@
+import "./globals.css";
+
 export const metadata = {
   title: "RISK-REDUX",
   description: "Deterministic capital governance engine (v1)"
@@ -6,7 +8,7 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial", margin: 0 }}>
+      <body>
         {children}
       </body>
     </html>
